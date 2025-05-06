@@ -1,7 +1,7 @@
 import tkinter as tk
 
 def main():
-    print("Hello, World!")
+    print("update Hello, World!")
 
 if __name__ == "__main__":
     def on_button_click():
