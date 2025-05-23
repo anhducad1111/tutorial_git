@@ -1,331 +1,197 @@
 import asyncio
-import time
 import customtkinter as ctk
 from bleak import BleakScanner
 from src.config.app_config import AppConfig
+from src.views.main_view import MainView
+from src.views.imu_views import IMU1View, IMU2View
+from src.views.timestamp_view import TimestampView 
+from src.model.esp32_service import ESP32BLEService
+from src.presenter.connection_presenter import ConnectionPresenter
+from src.presenter.imu_presenter import IMUPresenter
+from src.presenter.timestamp_presenter import TimestampPresenter
 from src.views.connection_dialog import ConnectionDialog
-from src.utils.esp32_ble import ESP32BLEService
-from datetime import datetime
 
-class BLEMonitor(ctk.CTk):
+class BLEMonitorApp:
+    """Main application class using MVP pattern"""
+    
     def __init__(self):
-        super().__init__()
-
-        self._destroyed = False
-        self.title(AppConfig.WINDOW_TITLE)
-        self.geometry("800x600")
-
-        self.connected_device = None
-        self.device_rssi = None
-        self.imu1_notifying = False
-        self.imu2_notifying = False
-
+        # Set appearance mode
+        ctk.set_appearance_mode(AppConfig.APPEARANCE_MODE)
+        
+        # Create event loop
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         
+        # Initialize BLE service
         self.ble_service = ESP32BLEService()
-
-        self._create_gui()
+        
+        # Create main view
+        self.main_view = MainView()
+        self.content_area = self.main_view.create_content_area()
+        
+        # Create IMU views
+        imu_frame = ctk.CTkFrame(self.content_area, fg_color="transparent")
+        imu_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        imu_frame.grid_columnconfigure(0, weight=1)
+        imu_frame.grid_columnconfigure(1, weight=1)
+        
+        self.imu1_view = IMU1View(imu_frame)
+        self.imu1_view.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        
+        self.imu2_view = IMU2View(imu_frame)
+        self.imu2_view.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        
+        # Create timestamp view
+        self.timestamp_view = TimestampView(self.content_area)
+        self.timestamp_view.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
+        
+        # Override clear_displays
+        def clear_displays():
+            self.timestamp_view.clear()
+            self.imu1_view.update_accel(0, 0, 0)
+            self.imu1_view.update_gyro(0, 0, 0)
+            self.imu1_view.update_magn(0, 0, 0)
+            self.imu1_view.update_debug_text("")
+            self.imu2_view.update_accel(0, 0, 0)
+            self.imu2_view.update_gyro(0, 0, 0)
+            self.imu2_view.update_magn(0, 0, 0)
+            self.imu2_view.update_debug_text("")
+            
+        self.main_view.clear_displays = clear_displays
+        
+        # Create presenters
+        self.connection_presenter = ConnectionPresenter(
+            self.main_view,
+            self.ble_service,
+            self.loop
+        )
+        
+        self.imu1_presenter = IMUPresenter(
+            self.imu1_view,
+            self.ble_service,
+            self.ble_service.IMU1_CHAR_UUID,
+            self.loop
+        )
+        
+        self.imu2_presenter = IMUPresenter(
+            self.imu2_view,
+            self.ble_service,
+            self.ble_service.IMU2_CHAR_UUID,
+            self.loop
+        )
+        
+        self.timestamp_presenter = TimestampPresenter(
+            self.timestamp_view,
+            self.ble_service,
+            self.ble_service.TIMESTAMP_CHAR_UUID
+        )
+        
+        # Setup event handlers
+        self._setup_event_handlers()
+        
+        # Setup asyncio integration
         self._setup_asyncio_integration()
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
+        
+        # Setup window close handler
+        self.main_view.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+    def _setup_event_handlers(self):
+        """Setup event handlers for UI controls"""
+        # Connection handlers
+        self.main_view.set_handlers(
+            connect_command=self._show_connection_dialog,
+            disconnect_command=self._disconnect_device
+        )
+        
+        # IMU1 handlers
+        self.imu1_view.button_read.configure(
+            command=lambda: self.loop.create_task(self.imu1_presenter.read_data())
+        )
+        self.imu1_view.button_notify.configure(
+            command=lambda: self.loop.create_task(self.imu1_presenter.toggle_notifications())
+        )
+        
+        # IMU2 handlers
+        self.imu2_view.button_read.configure(
+            command=lambda: self.loop.create_task(self.imu2_presenter.read_data())
+        )
+        self.imu2_view.button_notify.configure(
+            command=lambda: self.loop.create_task(self.imu2_presenter.toggle_notifications())
+        )
+        
+        # Timestamp handlers
+        self.timestamp_view.read_button.configure(
+            command=lambda: self.loop.create_task(self.timestamp_presenter.read_timestamp())
+        )
+        self.timestamp_view.write_button.configure(
+            command=lambda: self.loop.create_task(self.timestamp_presenter.write_current_time())
+        )
+        
     def _setup_asyncio_integration(self):
+        """Setup asyncio integration with Tkinter"""
         def handle_asyncio():
             self.loop.stop()
             self.loop.run_forever()
-            self.after(10, handle_asyncio)
-        self.after(10, handle_asyncio)
-
-    def _format_timestamp(self, timestamp):
-        """Format timestamp value for display"""
-        try:
-            dt = datetime.fromtimestamp(timestamp)
-            return (
-                f"UNIX Timestamp: {timestamp}\n"
-                f"Date/Time: {dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"Raw bytes: {' '.join(f'{b:02x}' for b in timestamp.to_bytes(8, 'little'))}"
-            )
-        except Exception as e:
-            return f"Error: {e}"
-
-    def _format_imu_value(self, value, hex_str):
-        """Format IMU value for display"""
-        return (
-            f"Value: {value}\n"
-            f"Raw bytes: {hex_str}"
-        )
-
-    async def _on_imu1_notify(self, sender, result):
-        if result:
-            value, hex_str = result
-            self._update_display(self.imu1_display, self._format_imu_value(value, hex_str))
-
-    async def _on_imu2_notify(self, sender, result):
-        if result:
-            value, hex_str = result
-            self._update_display(self.imu2_display, self._format_imu_value(value, hex_str))
-
-    def _read_imu1(self):
-        self.loop.create_task(self._read_imu1_value())
-
-    def _read_imu2(self):
-        self.loop.create_task(self._read_imu2_value())
-
-    async def _read_imu1_value(self):
-        result = await self.ble_service.read_imu1()
-        if result:
-            value, hex_str = result
-            self._update_display(self.imu1_display, self._format_imu_value(value, hex_str))
-
-    async def _read_imu2_value(self):
-        result = await self.ble_service.read_imu2()
-        if result:
-            value, hex_str = result
-            self._update_display(self.imu2_display, self._format_imu_value(value, hex_str))
-
-    def _create_gui(self):
-        # Control frame
-        self.control_frame = ctk.CTkFrame(self)
-        self.control_frame.pack(fill="x", padx=10, pady=5)
-
-        self.connect_button = ctk.CTkButton(
-            self.control_frame,
-            text="Connect Device",
-            command=self._show_connection_dialog
-        )
-        self.connect_button.pack(side="left", padx=5)
-
-        self.disconnect_button = ctk.CTkButton(
-            self.control_frame,
-            text="Disconnect",
-            command=self._disconnect_device,
-            state="disabled"
-        )
-        self.disconnect_button.pack(side="left", padx=5)
-
-        # Timestamp frame
-        self.timestamp_frame = ctk.CTkFrame(self)
-        self.timestamp_frame.pack(fill="x", padx=10, pady=5)
-
-        timestamp_label = ctk.CTkLabel(self.timestamp_frame, text="Timestamp:", anchor="w")
-        timestamp_label.pack(side="left", padx=5)
-
-        self.read_timestamp_btn = ctk.CTkButton(
-            self.timestamp_frame,
-            text="Read",
-            command=self._read_timestamp,
-            state="disabled",
-            width=60
-        )
-        self.read_timestamp_btn.pack(side="left", padx=5)
-
-        self.write_timestamp_btn = ctk.CTkButton(
-            self.timestamp_frame,
-            text="Write Current Time",
-            command=self._write_current_time,
-            state="disabled"
-        )
-        self.write_timestamp_btn.pack(side="left", padx=5)
-
-        self.timestamp_display = ctk.CTkTextbox(
-            self.timestamp_frame,
-            height=60,
-            width=300,
-            state="disabled"
-        )
-        self.timestamp_display.pack(side="left", fill="x", expand=True, padx=5)
-
-        # IMU1 frame 
-        self.imu1_frame = ctk.CTkFrame(self)
-        self.imu1_frame.pack(fill="x", padx=10, pady=5)
-
-        imu1_label = ctk.CTkLabel(self.imu1_frame, text="IMU1:", anchor="w")
-        imu1_label.pack(side="left", padx=5)
-
-        self.read_imu1_btn = ctk.CTkButton(
-            self.imu1_frame,
-            text="Read",
-            command=self._read_imu1,
-            state="disabled",
-            width=60
-        )
-        self.read_imu1_btn.pack(side="left", padx=5)
-
-        self.imu1_notify_btn = ctk.CTkButton(
-            self.imu1_frame,
-            text="Start Notify",
-            command=lambda: self.loop.create_task(self._toggle_imu1_notify()),
-            state="disabled"
-        )
-        self.imu1_notify_btn.pack(side="left", padx=5)
-
-        self.imu1_display = ctk.CTkTextbox(
-            self.imu1_frame,
-            height=150,  # Higher to show all sensor values
-            width=400,  # Wider for raw bytes
-            state="disabled"
-        )
-        self.imu1_display.pack(side="left", fill="x", expand=True, padx=5)
-
-        # IMU2 frame
-        self.imu2_frame = ctk.CTkFrame(self)
-        self.imu2_frame.pack(fill="x", padx=10, pady=5)
-
-        imu2_label = ctk.CTkLabel(self.imu2_frame, text="IMU2:", anchor="w")
-        imu2_label.pack(side="left", padx=5)
-
-        self.read_imu2_btn = ctk.CTkButton(
-            self.imu2_frame,
-            text="Read",
-            command=self._read_imu2,
-            state="disabled",
-            width=60
-        )
-        self.read_imu2_btn.pack(side="left", padx=5)
-
-        self.imu2_notify_btn = ctk.CTkButton(
-            self.imu2_frame,
-            text="Start Notify", 
-            command=lambda: self.loop.create_task(self._toggle_imu2_notify()),
-            state="disabled"
-        )
-        self.imu2_notify_btn.pack(side="left", padx=5)
-
-        self.imu2_display = ctk.CTkTextbox(
-            self.imu2_frame,
-            height=150,  # Higher to show all sensor values
-            width=400,  # Wider for raw bytes
-            state="disabled"
-        )
-        self.imu2_display.pack(side="left", fill="x", expand=True, padx=5)
-
-        # Info frame
-        self.info_frame = ctk.CTkFrame(self)
-        self.info_frame.pack(fill="x", padx=10, pady=5)
-
-        self.info_label = ctk.CTkLabel(
-            self.info_frame,
-            text="No device connected",
-            wraplength=550
-        )
-        self.info_label.pack(padx=10, pady=10)
-
+            self.main_view.after(10, handle_asyncio)
+        self.main_view.after(10, handle_asyncio)
+        
     def _show_connection_dialog(self):
-        ConnectionDialog(self, self.loop, BleakScanner, self._handle_connection)
-
+        """Show connection dialog"""
+        ConnectionDialog(self.main_view, self.loop, BleakScanner, self._handle_connection)
+        
     def _handle_connection(self, device_info):
-        self.connected_device = device_info
-        self.device_rssi = device_info['rssi']
-        self.loop.create_task(self._connect_to_device())
-
-    async def _connect_to_device(self):
-        if not self.connected_device:
-            return
-
-        success, message = await self.ble_service.connect_to_device(self.connected_device['address'])
-        self.after(0, self._update_connection_status, success, message)
-
-    def _update_connection_status(self, connected: bool, message: str):
-        if connected:
-            self.info_label.configure(
-                text=f"Connected to: {self.connected_device['name']}\nRSSI: {self.device_rssi} dBm"
-            )
-            self.connect_button.configure(state="disabled")
-            self.disconnect_button.configure(state="normal")
-            self._enable_controls(True)
+        """Handle device selection from connection dialog"""
+        self.loop.create_task(self._connect_to_device(device_info))
+        
+    async def _connect_to_device(self, device_info):
+        """Connect to the selected device"""
+        # Convert device_info dict to BLEDeviceInfo
+        from src.model.ble_service import BLEDeviceInfo
+        ble_device = BLEDeviceInfo(
+            address=device_info['address'],
+            name=device_info['name'],
+            rssi=device_info['rssi']
+        )
+        success = await self.connection_presenter.connect_to_device(ble_device)
+        if success:
+            # Enable IMU and timestamp controls
+            self.imu1_view.set_button_states(True)
+            self.imu2_view.set_button_states(True)
+            self.timestamp_view.set_button_states(True)
         else:
-            self.info_label.configure(text=f"Connection status: {message}")
-            self.connect_button.configure(state="normal")
-            self.disconnect_button.configure(state="disabled")
-            self._enable_controls(False)
-            self._clear_displays()
-            self.loop.create_task(self._stop_all_notifications())
-
-    def _enable_controls(self, enabled: bool):
-        state = "normal" if enabled else "disabled"
-        self.read_timestamp_btn.configure(state=state)
-        self.write_timestamp_btn.configure(state=state)
-        self.read_imu1_btn.configure(state=state)
-        self.read_imu2_btn.configure(state=state)
-        self.imu1_notify_btn.configure(state=state)
-        self.imu2_notify_btn.configure(state=state)
-
-    async def _stop_all_notifications(self):
-        if self.imu1_notifying:
-            await self.ble_service.stop_imu1_notify()
-            self.imu1_notify_btn.configure(text="Start Notify")
-            self.imu1_notifying = False
-        if self.imu2_notifying:
-            await self.ble_service.stop_imu2_notify()
-            self.imu2_notify_btn.configure(text="Start Notify")
-            self.imu2_notifying = False
-
-    def _clear_displays(self):
-        for display in [self.timestamp_display, self.imu1_display, self.imu2_display]:
-            display.configure(state="normal")
-            display.delete("1.0", "end")
-            display.configure(state="disabled")
-
-    def _update_display(self, textbox, value, prefix=""):
-        if not self._destroyed:
-            textbox.configure(state="normal")
-            textbox.delete("1.0", "end")
-            textbox.insert("1.0", f"{prefix}{value}")
-            textbox.configure(state="disabled")
-
-    def _read_timestamp(self):
-        self.loop.create_task(self._read_timestamp_value())
-
-    def _write_current_time(self):
-        current_time = int(time.time())
-        self.loop.create_task(self._write_timestamp_value(current_time))
-
-    async def _read_timestamp_value(self):
-        value = await self.ble_service.read_timestamp()
-        if value is not None:
-            self._update_display(self.timestamp_display, self._format_timestamp(value))
-
-    async def _write_timestamp_value(self, timestamp):
-        if await self.ble_service.write_timestamp(timestamp):
-            await self._read_timestamp_value()
-
-    async def _toggle_imu1_notify(self):
-        if not self.imu1_notifying:
-            success = await self.ble_service.start_imu1_notify(self._on_imu1_notify)
-            if success:
-                self.imu1_notify_btn.configure(text="Stop Notify")
-                self.imu1_notifying = True
-        else:
-            await self.ble_service.stop_imu1_notify()
-            self.imu1_notify_btn.configure(text="Start Notify")
-            self.imu1_notifying = False
-
-    async def _toggle_imu2_notify(self):
-        if not self.imu2_notifying:
-            success = await self.ble_service.start_imu2_notify(self._on_imu2_notify)
-            if success:
-                self.imu2_notify_btn.configure(text="Stop Notify")
-                self.imu2_notifying = True
-        else:
-            await self.ble_service.stop_imu2_notify()
-            self.imu2_notify_btn.configure(text="Start Notify")
-            self.imu2_notifying = False
-
+            print("Connection failed")
+        
     def _disconnect_device(self):
-        self.loop.create_task(self._disconnect_from_device())
-
-    async def _disconnect_from_device(self):
-        if await self.ble_service.disconnect():
-            self.after(0, self._update_connection_status, False, "Disconnected")
-
-    def on_closing(self):
-        self._destroyed = True
+        """Disconnect from current device"""
+        self.loop.create_task(self._disconnect_and_disable())
+        
+    async def _disconnect_and_disable(self):
+        """Disconnect and disable controls"""
+        await self.connection_presenter.disconnect()
+        
+        # Reset all displays and controls
+        self.main_view.clear_displays()
+        
+        # Reset IMU notification states
+        self.imu1_view.toggle_notify(False)
+        self.imu2_view.toggle_notify(False)
+        
+        # Disable all controls
+        self.imu1_view.set_button_states(False)
+        self.imu2_view.set_button_states(False)
+        self.timestamp_view.set_button_states(False)
+        
+    def _on_closing(self):
+        """Handle window closing"""
         self.loop.create_task(self.ble_service.disconnect())
         self.loop.run_until_complete(asyncio.sleep(0.1))
         self.loop.stop()
-        self.quit()
+        self.main_view.quit()
+        
+    def run(self):
+        """Start the application"""
+        self.main_view.mainloop()
 
 if __name__ == "__main__":
-    ctk.set_appearance_mode(AppConfig.APPEARANCE_MODE)
-    app = BLEMonitor()
-    app.mainloop()
+    app = BLEMonitorApp()
+    app.run()

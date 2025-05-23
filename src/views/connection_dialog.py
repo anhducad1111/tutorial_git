@@ -107,6 +107,7 @@ class ConnectionDialog(ctk.CTkToplevel):
         self.callback = callback
         self.selected_device = None
         self._destroyed = False
+        self.scan_timeout = 5  # Scan timeout in seconds
         self._setup_window(parent)
         self._create_main_layout()
         self.loop.create_task(self._start_scanning())
@@ -251,6 +252,7 @@ class ConnectionDialog(ctk.CTkToplevel):
             
         self.device_list.clear()
         self.scan_btn.configure(state="disabled", text="Scanning...")
+        self.info_label.configure(text="Scanning for devices...")
         
         async def detection_callback(device, advertisement_data):
             if not self._destroyed and device.name:  # Only add devices with names
@@ -265,10 +267,16 @@ class ConnectionDialog(ctk.CTkToplevel):
                 await asyncio.sleep(5)  # Scan for 5 seconds
                 
             if not self._destroyed:
+                if len(self.device_list.devices) == 0:
+                    self.info_label.configure(text="No devices found")
+                else:
+                    self.info_label.configure(text="Select a device to connect")
                 self.scan_btn.configure(state="normal", text="Scan Again")
+                
         except Exception as e:
             print(f"Scan error: {e}")  # Added for debugging
             if not self._destroyed:
+                self.info_label.configure(text=f"Scan error: {str(e)}")
                 self.scan_btn.configure(state="normal", text="Scan Again")
 
     def _on_scan_again(self):
