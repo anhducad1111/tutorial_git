@@ -19,15 +19,16 @@ class ConnectionPresenter:
         result = await self.service.connect(device_info)
         if result:
             message = f"Connected to {device_info.name}"
+            self.view.show_connection_status(result, device_info, message)
         else:
             message = "Connection failed"
-        self.view.show_connection_status(result, message)
+            self.view.show_connection_status(result, None, message)
         return result
         
     async def disconnect(self):
         """Disconnect from current device"""
         result = await self.service.disconnect()
-        self.view.show_connection_status(False, "Disconnected")
+        self.view.show_connection_status(False, None, "Disconnected")
         return result
         
     def is_connected(self):

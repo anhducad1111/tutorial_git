@@ -137,7 +137,7 @@ class BLEMonitorApp:
         
     def _show_connection_dialog(self):
         """Show connection dialog"""
-        ConnectionDialog(self.main_view, self.loop, BleakScanner, self._handle_connection)
+        self.connection_dialog = ConnectionDialog(self.main_view, self.loop, BleakScanner, self._handle_connection)
         
     def _handle_connection(self, device_info):
         """Handle device selection from connection dialog"""
@@ -152,14 +152,21 @@ class BLEMonitorApp:
             name=device_info['name'],
             rssi=device_info['rssi']
         )
+        
+        # Attempt connection
         success = await self.connection_presenter.connect_to_device(ble_device)
         if success:
+            # Show success in dialog and set flag
+            self.connection_dialog.connection_success = True
+            self.connection_dialog.status_dialog.show_connected(ble_device)
             # Enable IMU and timestamp controls
             self.imu1_view.set_button_states(True)
             self.imu2_view.set_button_states(True)
             self.timestamp_view.set_button_states(True)
         else:
-            print("Connection failed")
+            # Show failure in dialog and set flag
+            self.connection_dialog.connection_success = False
+            self.connection_dialog.status_dialog.show_failed()
         
     def _disconnect_device(self):
         """Disconnect from current device"""
@@ -167,6 +174,13 @@ class BLEMonitorApp:
         
     async def _disconnect_and_disable(self):
         """Disconnect and disable controls"""
+        # Stop notifications first if they are active
+        if self.imu1_presenter.is_notifying():
+            await self.imu1_presenter.toggle_notifications()
+        if self.imu2_presenter.is_notifying():
+            await self.imu2_presenter.toggle_notifications()
+            
+        # Then disconnect
         await self.connection_presenter.disconnect()
         
         # Reset all displays and controls
@@ -183,8 +197,15 @@ class BLEMonitorApp:
         
     def _on_closing(self):
         """Handle window closing"""
-        self.loop.create_task(self.ble_service.disconnect())
-        self.loop.run_until_complete(asyncio.sleep(0.1))
+        # Stop all notifications and disconnect
+        async def cleanup():
+            if self.imu1_presenter.is_notifying():
+                await self.imu1_presenter.toggle_notifications()
+            if self.imu2_presenter.is_notifying():
+                await self.imu2_presenter.toggle_notifications()
+            await self.ble_service.disconnect()
+            
+        self.loop.run_until_complete(cleanup())
         self.loop.stop()
         self.main_view.quit()
         

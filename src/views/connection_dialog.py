@@ -274,9 +274,12 @@ class ConnectionDialog(ctk.CTkToplevel):
                 self.scan_btn.configure(state="normal", text="Scan Again")
                 
         except Exception as e:
-            print(f"Scan error: {e}")  # Added for debugging
+            error_msg = str(e)
+            if "WinError -2147020577" in error_msg:
+                error_msg = "Please turn on Bluetooth"
+                
             if not self._destroyed:
-                self.info_label.configure(text=f"Scan error: {str(e)}")
+                self.info_label.configure(text=error_msg)
                 self.scan_btn.configure(state="normal", text="Scan Again")
 
     def _on_scan_again(self):
@@ -292,9 +295,30 @@ class ConnectionDialog(ctk.CTkToplevel):
         if self._destroyed:
             return
             
-        if self.selected_device and self.callback:
-            self.callback(self.selected_device)
-        self.destroy()
+        if self.selected_device:
+            # Show connecting dialog
+            from src.views.connection_status_dialog import ConnectionStatusDialog
+            self.status_dialog = ConnectionStatusDialog(self)
+            self.status_dialog.bind('<Destroy>', self._on_status_dialog_closed)
+            self.status_dialog.show_connecting()
+            
+            # Start connection process
+            if self.callback:
+                self.callback(self.selected_device)
+                
+    def _on_status_dialog_closed(self, event):
+        """Handle status dialog closure"""
+        if self._destroyed:
+            return
+            
+        if hasattr(self, 'connection_success'):
+            if self.connection_success:
+                # If connection was successful, close connection dialog
+                self.destroy()
+            else:
+                # If connection failed, just release grab to show connection dialog again
+                self.status_dialog.grab_release()
+                self.grab_set()
 
     def destroy(self):
         self._destroyed = True

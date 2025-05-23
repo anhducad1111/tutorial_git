@@ -81,9 +81,9 @@ class MainView(ctk.CTk, ConnectionViewInterface):
             self.disconnect_button.configure(state="disabled")
             self.info_label.configure(text=message or "No device connected")
             
-    def show_connection_status(self, result, message):
+    def show_connection_status(self, result, device_info=None, message=""):
         """Show connection status (required by ConnectionPresenter)"""
-        self.update_connection_status(result, message=message)
+        self.update_connection_status(result, device_info, message)
     
     def clear_displays(self):
         """Delegate to child views"""

@@ -1,4 +1,3 @@
-import struct
 from src.model.ble_service import BLEService
 from src.model.imu import IMUData
 from src.model.timestamp import TimestampData
