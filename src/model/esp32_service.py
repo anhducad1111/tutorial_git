@@ -92,9 +92,14 @@ class ESP32BLEService(BLEService):
         super().__init__()
         # Create UUID class attributes and initialize callbacks dictionary
         self._callbacks = {}
+        self.loop = None  # Event loop set by presenter
         for name, (uuid, _) in self.CHARACTERISTICS.items():
             setattr(self, name, uuid)
             self._callbacks[uuid] = None
+            
+    def set_loop(self, loop):
+        """Set event loop for async operations"""
+        self.loop = loop
 
     # Implement required abstract methods
     async def check_firmware_revision(self):
@@ -225,12 +230,18 @@ class ESP32BLEService(BLEService):
         try:
             # Get the data class for this UUID
             data_class = next((cls for _, (u, cls) in self.CHARACTERISTICS.items() if u == uuid), None)
-            if not data_class:
-                return False
-
+            
             self._callbacks[uuid] = callback
             async def handler(sender, data):
-                await self._generic_notification_handler(sender, data, callback, data_class)
+                # For raw config data, format as hex string
+                if uuid == self.CONFIG_UUID:
+                    hex_str = ' '.join([f"{b:02X}" for b in data])
+                    # Create task for config update
+                    self.loop.create_task(callback(hex_str))
+                # For others use generic handler
+                elif data_class:
+                    await self._generic_notification_handler(sender, data, callback, data_class)
+                    
             await self.client.start_notify(uuid, handler)
             return True
         except Exception as e:
@@ -337,6 +348,15 @@ class ESP32BLEService(BLEService):
     async def stop_buttons_notify(self):
         """Stop buttons notifications"""
         return await self._stop_notify_generic(self.BUTTONS_UUID)
+
+    # Config Methods
+    async def start_config_notify(self, callback):
+        """Start config notifications"""
+        return await self._start_notify_generic(self.CONFIG_UUID, callback)
+            
+    async def stop_config_notify(self):
+        """Stop config notifications"""
+        return await self._stop_notify_generic(self.CONFIG_UUID)
 
     # Battery Methods
     async def stop_battery_notify(self):
