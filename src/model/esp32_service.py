@@ -8,6 +8,50 @@ from src.model.battery import BatteryLevelData, BatteryStateData
 
 class ESP32BLEService(BLEService):
     """ESP32-specific BLE service implementation"""
+
+    # Config value to name mappings
+    ACCEL_GYRO_FREQ_MAP = {
+        0: "LSM6DS_RATE_SHUTDOWN",
+        1: "LSM6DS_RATE_12_5_HZ",
+        2: "LSM6DS_RATE_26_HZ",
+        3: "LSM6DS_RATE_52_HZ",
+        4: "LSM6DS_RATE_104_HZ",
+        5: "LSM6DS_RATE_208_HZ",
+        6: "LSM6DS_RATE_416_HZ"
+    }
+
+    MAG_FREQ_MAP = {
+        0: "LIS3MDL_DATARATE_0_625_HZ",
+        1: "LIS3MDL_DATARATE_1_25_HZ",
+        2: "LIS3MDL_DATARATE_2_5_HZ",
+        3: "LIS3MDL_DATARATE_5_HZ",
+        4: "LIS3MDL_DATARATE_10_HZ",
+        5: "LIS3MDL_DATARATE_20_HZ",
+        6: "LIS3MDL_DATARATE_40_HZ",
+        7: "LIS3MDL_DATARATE_80_HZ"
+    }
+
+    ACCEL_RANGE_MAP = {
+        0: "LSM6DS_ACCEL_RANGE_2_G",
+        1: "LSM6DS_ACCEL_RANGE_4_G",
+        2: "LSM6DS_ACCEL_RANGE_8_G",
+        3: "LSM6DS_ACCEL_RANGE_16_G"
+    }
+
+    GYRO_RANGE_MAP = {
+        0: "LSM6DS_GYRO_RANGE_125_DPS",
+        1: "LSM6DS_GYRO_RANGE_250_DPS",
+        2: "LSM6DS_GYRO_RANGE_500_DPS",
+        3: "LSM6DS_GYRO_RANGE_1000_DPS",
+        4: "LSM6DS_GYRO_RANGE_2000_DPS"
+    }
+
+    MAG_RANGE_MAP = {
+        0: "LIS3MDL_RANGE_4_GAUSS",
+        1: "LIS3MDL_RANGE_8_GAUSS",
+        2: "LIS3MDL_RANGE_12_GAUSS",
+        3: "LIS3MDL_RANGE_16_GAUSS"
+    }
     
     # Device UUIDs and their corresponding data classes
     CHARACTERISTICS = {
@@ -20,6 +64,9 @@ class ESP32BLEService(BLEService):
         # Battery UUIDs
         "BATTERY_LEVEL_UUID": ("2A19", BatteryLevelData),
         "BATTERY_CHARGING_UUID": ("2A1A", BatteryStateData),
+
+        # Configuration UUID
+        "CONFIG_UUID": ("289f76d8-2edb-455d-8c3c-aabb42ab5b5c", None),  # Raw config characteristic
 
         # Device UUIDs
         "IMU1_CHAR_UUID": ("55A58E5B-9F51-47DC-B6C7-EE929BA79664", IMUData),
@@ -58,6 +105,36 @@ class ESP32BLEService(BLEService):
     async def check_hardware_revision(self):
         """Check hardware revision string"""
         return await self._read_characteristic_data(self.HARDWARE_UUID)
+
+    async def read_config(self):
+        """Read IMU and sensor configuration"""
+        if not self.is_connected():
+            return None
+        try:
+            data = await self.read_characteristic(self.CONFIG_UUID)
+            if not data or len(data) < 15:  # Must have at least 15 bytes
+                return None
+            return data
+        except Exception as e:
+            print(f"Error reading config: {e}")
+            return None
+            
+    async def write_config(self, data):
+        """Write IMU and sensor configuration
+        
+        Args:
+            data (bytes): 15 bytes configuration data
+        Returns:
+            bool: True if successful
+        """
+        if not self.is_connected() or not data or len(data) != 15:
+            return False
+        try:
+            await self.write_characteristic(self.CONFIG_UUID, data)
+            return True
+        except Exception as e:
+            print(f"Error writing config: {e}")
+            return False
 
     async def connect(self, device_info):
         """Connect to a BLE device and check profiles"""
@@ -272,7 +349,7 @@ class ESP32BLEService(BLEService):
     async def read_timestamp(self):
         """Read timestamp data"""
         return await self._read_characteristic_data(self.TIMESTAMP_CHAR_UUID)
-    
+
     async def write_timestamp(self, timestamp_data):
         """Write timestamp data"""
         return await self._write_characteristic_data(self.TIMESTAMP_CHAR_UUID, timestamp_data)
