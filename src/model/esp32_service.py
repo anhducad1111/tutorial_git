@@ -5,10 +5,19 @@ from src.model.sensor import FlexSensorData, ForceSensorData
 from src.model.gamepad import JoystickData, ButtonsData
 from src.model.overall_status import OverallStatus
 from src.model.battery import BatteryLevelData, BatteryStateData
+import asyncio
 
 class ESP32BLEService(BLEService):
     """ESP32-specific BLE service implementation"""
-
+    
+    # Required BLE services for device
+    REQUIRED_SERVICES = {
+        "Sensors": "ed38fbd9-3657-4be3-bf5e-3ab5d29818d8",
+        "Gamepad": "aade5d3b-2717-4903-8ed8-7544b47d1fc0",
+        "Battery": "0000180f-0000-1000-8000-00805f9b34fb",
+        "Device": "0000180a-0000-1000-8000-00805f9b34fb"
+    }
+    
     # Config value to name mappings
     ACCEL_GYRO_FREQ_MAP = {
         0: "LSM6DS_RATE_SHUTDOWN",
@@ -101,6 +110,62 @@ class ESP32BLEService(BLEService):
         """Set event loop for async operations"""
         self.loop = loop
 
+    async def check_services(self):
+        """Check if device has all required services"""
+        try:
+            if not self.client or not self.client.is_connected:
+                return False
+                
+            # Get available services
+            print("\nChecking device services...")
+            
+            # Discovery delay and retry
+            max_retries = 3
+            for attempt in range(max_retries):
+                # Wait for services to be discovered
+                await asyncio.sleep(0.5)
+                
+                # Check if still connected
+                if not self.client or not self.client.is_connected:
+                    print("Lost connection during service discovery")
+                    return False
+                
+                # Instead of get_services(), access services directly
+                if not self.client.services:
+                    print("No services found, waiting for discovery...")
+                    continue
+                
+                print(f"\nChecking required services (attempt {attempt + 1}/{max_retries}):")
+                # Get all services
+                services = {str(service.uuid).lower() for service in self.client.services}
+                
+                # Print available services
+                print("Available services:")
+                for service in self.client.services:
+                    print(f"- {service.uuid}")
+                
+                # Check each required service
+                missing_services = []
+                for name, uuid in self.REQUIRED_SERVICES.items():
+                    if uuid.lower() not in services:
+                        print(f"❌ Missing {name} service ({uuid})")
+                        missing_services.append(name)
+                    else:
+                        print(f"✓ Found {name} service ({uuid})")
+                        
+                if not missing_services:
+                    return True
+                elif attempt < max_retries - 1:
+                    print(f"\nRetrying service discovery...")
+                else:
+                    print(f"\nMissing required services: {', '.join(missing_services)}")
+                    return False
+                    
+            return True
+        except Exception as e:
+            print(f"Error checking services: {e}")
+            return False
+
     # Implement required abstract methods
     async def check_firmware_revision(self):
         """Check firmware revision string"""
@@ -150,18 +215,28 @@ class ESP32BLEService(BLEService):
 
     async def connect(self, device_info):
         """Connect to a BLE device and check profiles"""
+        # First attempt connection
         result = await super().connect(device_info)
-        if result:
-            # Read device profiles and update device_info
-            device_info.firmware = await self.check_firmware_revision()
-            device_info.model = await self.check_model_number()
-            device_info.manufacturer = await self.check_manufacturer()
-            device_info.hardware = await self.check_hardware_revision()
+        if not result:
+            return False
 
-            # Start battery notifications
-            if hasattr(device_info, 'view'):
-                await self._start_battery_notifications(device_info.view)
-        return result
+        # Check for required services
+        has_services = await self.check_services()
+        if not has_services:
+            await self.disconnect()
+            return False
+            
+        # Read device profiles and update device_info
+        device_info.firmware = await self.check_firmware_revision()
+        device_info.model = await self.check_model_number()
+        device_info.manufacturer = await self.check_manufacturer()
+        device_info.hardware = await self.check_hardware_revision()
+
+        # Start battery notifications
+        if hasattr(device_info, 'view'):
+            await self._start_battery_notifications(device_info.view)
+            
+        return True
 
     async def _read_characteristic_data(self, uuid):
         """Generic method to read and parse characteristic data"""
