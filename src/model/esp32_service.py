@@ -52,6 +52,13 @@ class ESP32BLEService(BLEService):
         2: "LIS3MDL_RANGE_12_GAUSS",
         3: "LIS3MDL_RANGE_16_GAUSS"
     }
+
+    # Reverse maps for config writing
+    ACCEL_GYRO_FREQ_REV_MAP = {v: k for k, v in ACCEL_GYRO_FREQ_MAP.items()}
+    MAG_FREQ_REV_MAP = {v: k for k, v in MAG_FREQ_MAP.items()}
+    ACCEL_RANGE_REV_MAP = {v: k for k, v in ACCEL_RANGE_MAP.items()}
+    GYRO_RANGE_REV_MAP = {v: k for k, v in GYRO_RANGE_MAP.items()}
+    MAG_RANGE_REV_MAP = {v: k for k, v in MAG_RANGE_MAP.items()}
     
     # Device UUIDs and their corresponding data classes
     CHARACTERISTICS = {
