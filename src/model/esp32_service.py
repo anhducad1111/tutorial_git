@@ -120,11 +120,11 @@ class ESP32BLEService(BLEService):
             print("\nChecking device services...")
             
             # Discovery delay and retry
-            max_retries = 3
+            max_retries = 5
             for attempt in range(max_retries):
                 # Wait for services to be discovered
-                await asyncio.sleep(0.5)
-                
+                await asyncio.sleep(0.2)
+
                 # Check if still connected
                 if not self.client or not self.client.is_connected:
                     print("Lost connection during service discovery")
@@ -217,7 +217,7 @@ class ESP32BLEService(BLEService):
         """Connect to a BLE device and check profiles with improved error handling"""
         try:
             # First attempt connection with retry
-            max_connect_retries = 3
+            max_connect_retries = 5
             for attempt in range(max_connect_retries):
                 try:
                     result = await super().connect(device_info)
@@ -225,11 +225,11 @@ class ESP32BLEService(BLEService):
                         break
                     if attempt < max_connect_retries - 1:
                         print(f"Connection attempt {attempt + 1} failed, retrying...")
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.5)
                 except Exception as e:
                     print(f"Connection error on attempt {attempt + 1}: {e}")
                     if attempt < max_connect_retries - 1:
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.5)
                         continue
                     raise
 
@@ -334,7 +334,7 @@ class ESP32BLEService(BLEService):
         except Exception as e:
             print(f"Error in {data_class.__name__} notification handler: {e}")
 
-    async def _start_notify_generic(self, uuid, callback, retries=3, delay=0.5):
+    async def _start_notify_generic(self, uuid, callback, retries=5, delay=0.2):
         """Generic method to start notifications with retry logic"""
         if not self.is_connected():
             return False
