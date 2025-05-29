@@ -12,7 +12,7 @@ class ESP32BLEService(BLEService):
     
     # Required BLE services for device
     REQUIRED_SERVICES = {
-        "Sensors": "ed38fbd9-3657-4be3-bf5e-3ab5d29818d8",
+        "Sensors": "ED38FBD9-3657-4BE3-BF5E-3AB5D29818D8",
         "Gamepad": "aade5d3b-2717-4903-8ed8-7544b47d1fc0",
         "Battery": "0000180f-0000-1000-8000-00805f9b34fb",
         "Device": "0000180a-0000-1000-8000-00805f9b34fb"
@@ -72,14 +72,14 @@ class ESP32BLEService(BLEService):
     # Device UUIDs and their corresponding data classes
     CHARACTERISTICS = {
         # Standard UUIDs
-        "FIRMWARE_UUID": ("2A26", str),
-        "MODEL_NUMBER_UUID": ("2A24", str),
-        "MANUFACTURER_UUID": ("2A29", str),
-        "HARDWARE_UUID": ("2A27", str),
+        "FIRMWARE_UUID": ("00002a26-0000-1000-8000-00805f9b34fb", str),
+        "MODEL_NUMBER_UUID": ("00002a24-0000-1000-8000-00805f9b34fb", str),
+        "MANUFACTURER_UUID": ("00002a29-0000-1000-8000-00805f9b34fb", str),
+        "HARDWARE_UUID": ("00002a27-0000-1000-8000-00805f9b34fb", str),
 
         # Battery UUIDs
-        "BATTERY_LEVEL_UUID": ("2A19", BatteryLevelData),
-        "BATTERY_CHARGING_UUID": ("2A1A", BatteryStateData),
+        "BATTERY_LEVEL_UUID": ("00002a19-0000-1000-8000-00805f9b34fb", BatteryLevelData),
+        "BATTERY_CHARGING_UUID": ("00002a1a-0000-1000-8000-00805f9b34fb", BatteryStateData),
 
         # Configuration UUID
         "CONFIG_UUID": ("289f76d8-2edb-455d-8c3c-aabb42ab5b5c", None),  # Raw config characteristic
