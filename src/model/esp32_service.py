@@ -12,8 +12,8 @@ class ESP32BLEService(BLEService):
     
     # Required BLE services for device
     REQUIRED_SERVICES = {
-        "Sensors": "ED38FBD9-3657-4BE3-BF5E-3AB5D29818D8",
-        "Gamepad": "aade5d3b-2717-4903-8ed8-7544b47d1fc0",
+        # "Sensors": "ED38FBD9-3657-4BE3-BF5E-3AB5D29818D8",
+        # "Gamepad": "aade5d3b-2717-4903-8ed8-7544b47d1fc0",
         "Battery": "0000180f-0000-1000-8000-00805f9b34fb",
         "Device": "0000180a-0000-1000-8000-00805f9b34fb"
     }
@@ -214,29 +214,66 @@ class ESP32BLEService(BLEService):
             return False
 
     async def connect(self, device_info):
-        """Connect to a BLE device and check profiles"""
-        # First attempt connection
-        result = await super().connect(device_info)
-        if not result:
-            return False
+        """Connect to a BLE device and check profiles with improved error handling"""
+        try:
+            # First attempt connection with retry
+            max_connect_retries = 3
+            for attempt in range(max_connect_retries):
+                try:
+                    result = await super().connect(device_info)
+                    if result:
+                        break
+                    if attempt < max_connect_retries - 1:
+                        print(f"Connection attempt {attempt + 1} failed, retrying...")
+                        await asyncio.sleep(1.0)
+                except Exception as e:
+                    print(f"Connection error on attempt {attempt + 1}: {e}")
+                    if attempt < max_connect_retries - 1:
+                        await asyncio.sleep(1.0)
+                        continue
+                    raise
 
-        # Check for required services
-        has_services = await self.check_services()
-        if not has_services:
+            if not result:
+                print("Failed to establish connection after retries")
+                return False
+
+            # Wait for initial connection stability
+            await asyncio.sleep(1.0)
+
+            # Check for required services with increased timeout
+            has_services = await self.check_services()
+            if not has_services:
+                print("Required services not found")
+                await self.disconnect()
+                return False
+            
+            # Additional wait after service discovery
+            await asyncio.sleep(0.5)
+            
+            try:
+                # Read device profiles and update device_info
+                print("Reading device profiles...")
+                device_info.firmware = await self.check_firmware_revision()
+                device_info.model = await self.check_model_number()
+                device_info.manufacturer = await self.check_manufacturer()
+                device_info.hardware = await self.check_hardware_revision()
+            except Exception as e:
+                print(f"Warning: Error reading device profiles: {e}")
+                # Continue even if profile reading fails
+
+            # Start battery notifications if view exists
+            if hasattr(device_info, 'view'):
+                try:
+                    await self._start_battery_notifications(device_info.view)
+                except Exception as e:
+                    print(f"Warning: Error starting battery notifications: {e}")
+                    # Continue even if battery notifications fail
+                
+            return True
+        except Exception as e:
+            print(f"Fatal error during connection process: {e}")
             await self.disconnect()
             return False
-            
-        # Read device profiles and update device_info
-        device_info.firmware = await self.check_firmware_revision()
-        device_info.model = await self.check_model_number()
-        device_info.manufacturer = await self.check_manufacturer()
-        device_info.hardware = await self.check_hardware_revision()
-
-        # Start battery notifications
-        if hasattr(device_info, 'view'):
-            await self._start_battery_notifications(device_info.view)
-            
-        return True
 
     async def _read_characteristic_data(self, uuid):
         """Generic method to read and parse characteristic data"""
@@ -297,31 +334,45 @@ class ESP32BLEService(BLEService):
         except Exception as e:
             print(f"Error in {data_class.__name__} notification handler: {e}")
 
-    async def _start_notify_generic(self, uuid, callback):
-        """Generic method to start notifications"""
+    async def _start_notify_generic(self, uuid, callback, retries=3, delay=0.5):
+        """Generic method to start notifications with retry logic"""
         if not self.is_connected():
             return False
             
-        try:
-            # Get the data class for this UUID
-            data_class = next((cls for _, (u, cls) in self.CHARACTERISTICS.items() if u == uuid), None)
-            
-            self._callbacks[uuid] = callback
-            async def handler(sender, data):
-                # For raw config data, format as hex string
-                if uuid == self.CONFIG_UUID:
-                    hex_str = ' '.join([f"{b:02X}" for b in data])
-                    # Create task for config update
-                    self.loop.create_task(callback(hex_str))
-                # For others use generic handler
-                elif data_class:
-                    await self._generic_notification_handler(sender, data, callback, data_class)
-                    
-            await self.client.start_notify(uuid, handler)
-            return True
-        except Exception as e:
-            print(f"Error starting notifications for {uuid}: {e}")
-            return False
+        for attempt in range(retries):
+            try:
+                # Get the data class for this UUID
+                data_class = next((cls for _, (u, cls) in self.CHARACTERISTICS.items() if u == uuid), None)
+                
+                self._callbacks[uuid] = callback
+                async def handler(sender, data):
+                    try:
+                        # For raw config data, format as hex string
+                        if uuid == self.CONFIG_UUID:
+                            hex_str = ' '.join([f"{b:02X}" for b in data])
+                            # Create task for config update
+                            self.loop.create_task(callback(hex_str))
+                        # For others use generic handler
+                        elif data_class:
+                            await self._generic_notification_handler(sender, data, callback, data_class)
+                    except Exception as e:
+                        print(f"Error in notification handler for {uuid}: {e}")
+                
+                # Wait briefly before attempting to start notifications
+                await asyncio.sleep(0.1)
+                await self.client.start_notify(uuid, handler)
+                print(f"✓ Started notifications for {uuid}")
+                return True
+
+            except Exception as e:
+                print(f"Error starting notifications for {uuid} (attempt {attempt + 1}/{retries}): {e}")
+                if attempt < retries - 1:
+                    await asyncio.sleep(delay)
+                    print(f"Retrying...")
+                continue
+
+        print(f"❌ Failed to start notifications for {uuid} after {retries} attempts")
+        return False
 
     async def _stop_notify_generic(self, uuid):
         """Generic method to stop notifications"""
