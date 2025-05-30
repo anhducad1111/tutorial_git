@@ -53,3 +53,54 @@ class TimestampViewInterface(ABC):
     def set_button_states(self, enabled):
         """Enable/disable timestamp buttons"""
         pass
+
+class ConnectionStatusViewInterface(ABC):
+    """Interface for connection status dialog"""
+    
+    @abstractmethod
+    def show_connecting(self):
+        """Show connecting state"""
+        pass
+        
+    @abstractmethod
+    def show_connected(self, device_info):
+        """Show connected state with device info"""
+        pass
+        
+    @abstractmethod
+    def show_failed(self):
+        """Show connection failed state"""
+        pass
+        
+    @abstractmethod
+    def on_ok_clicked(self, callback):
+        """Set callback for when OK button is clicked"""
+        pass
+
+class ConnectionDialogInterface(ABC):
+    """Interface for connection dialog"""
+    
+    @abstractmethod
+    def show_scanning(self):
+        """Show scanning state"""
+        pass
+    
+    @abstractmethod
+    def add_device(self, name, address, rssi):
+        """Add a discovered device to the list"""
+        pass
+    
+    @abstractmethod
+    def show_scan_complete(self, device_count):
+        """Show scan completion state"""
+        pass
+    
+    @abstractmethod
+    def on_device_selected(self, callback):
+        """Set callback for when a device is selected"""
+        pass
+    
+    @abstractmethod
+    def on_connect_clicked(self, callback):
+        """Set callback for when connect button is clicked"""
+        pass

@@ -104,17 +104,10 @@ class DeviceManager:
 
     async def connect(self, device_info):
         """Connect to device and start services"""
-        from src.model.ble_service import BLEDeviceInfo
-        ble_device = BLEDeviceInfo(
-            address=device_info['address'],
-            name=device_info['name'],
-            rssi=device_info['rssi']
-        )
-        
         try:
-            if await self.presenters['connection'].connect_to_device(ble_device):
-                return await self.start_services()
-            return False
+            # Pass device info dictionary directly to presenter
+            result = await self.presenters['connection'].connect_to_device(device_info)
+            return result
         except Exception:
             return False
 

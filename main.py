@@ -111,8 +111,9 @@ class App:
         """Initialize event handlers"""
         # Setup device monitor handlers
         self.main_view.device_monitor.loop = self.loop
+        # Setup connect/disconnect handlers
         self.main_view.device_monitor.set_handlers(
-            connect_command=self._handle_connection,
+            connect_command=self.presenters['connection'].connect_to_device,
             disconnect_command=self._handle_disconnect
         )
         

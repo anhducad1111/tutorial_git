@@ -101,18 +101,20 @@ class ScrollableDeviceFrame(ctk.CTkScrollableFrame):
         self._destroyed = True
         super().destroy()
 
-class ConnectionDialog(ctk.CTkToplevel):
-    def __init__(self, parent, loop, ble_scanner, callback=None):
+from src.view.view_interfaces import ConnectionDialogInterface
+
+class ConnectionDialog(ctk.CTkToplevel, ConnectionDialogInterface):
+    def __init__(self, parent, loop, ble_scanner):
         super().__init__(parent)
         self.config = AppConfig()  # Get singleton instance
         self.loop = loop
         self.ble_scanner = ble_scanner
-        self.callback = callback
         self.selected_device = None
         self._destroyed = False
+        self._device_selected_callback = None
+        self._connect_clicked_callback = None
         self._setup_window(parent)
         self._create_main_layout()
-        self.loop.create_task(self._start_scanning())
 
     async def _start_scanning(self):
         """Start BLE device scanning"""
@@ -306,21 +308,43 @@ class ConnectionDialog(ctk.CTkToplevel):
         if hasattr(self.master, 'loop'):
             self.master.loop.create_task(self._start_scanning())
 
+    def show_scanning(self):
+        """Show scanning state"""
+        if not self._destroyed:
+            self.device_list.clear()
+            self.scan_btn.configure(state="disabled", text="Scanning...")
+            self.info_label.configure(text="Scanning for devices...")
+            
+    def add_device(self, name, address, rssi):
+        """Add a discovered device to the list"""
+        if not self._destroyed:
+            self.device_list.add_device(name, address, rssi)
+            
+    def show_scan_complete(self, device_count):
+        """Show scan completion state"""
+        if not self._destroyed:
+            if device_count == 0:
+                self.info_label.configure(text="No devices found")
+            else:
+                self.info_label.configure(text="Select a device to connect")
+            self.scan_btn.configure(state="normal", text="Scan Again")
+            
+    def on_device_selected(self, callback):
+        """Set callback for when a device is selected"""
+        self._device_selected_callback = callback
+        
+    def on_connect_clicked(self, callback):
+        """Set callback for when connect button is clicked"""
+        self._connect_clicked_callback = callback
+
     def _on_connect(self):
         """Handle device connection"""
         if self._destroyed:
             return
             
-        if self.selected_device:
-            # Show connecting dialog
-            from src.view.connection_status_dialog import ConnectionStatusDialog
-            self.status_dialog = ConnectionStatusDialog(self)
-            self.status_dialog.bind('<Destroy>', self._on_status_dialog_closed)
-            self.status_dialog.show_connecting()
-            
-            # Start connection process
-            if self.callback:
-                self.callback(self.selected_device)
+        if self.selected_device and self._connect_clicked_callback:
+            if hasattr(self.master, 'loop'):
+                self.master.loop.create_task(self._connect_clicked_callback(self.selected_device))
 
     def _on_status_dialog_closed(self, event):
         """Handle status dialog closure"""

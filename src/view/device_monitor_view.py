@@ -71,8 +71,11 @@ class DeviceMonitorView(ctk.CTkFrame, ConnectionViewInterface):
                 'address': self.current_device_address,
                 'rssi': 0  # RSSI not critical for reconnect
             }
-            # Reuse existing connect flow
-            self.connect_command(current_device)
+            # Create task for connect command
+            if hasattr(self, 'loop'):
+                self.loop.create_task(
+                    self.connect_command(current_device)
+                )
 
     def _create_layout(self):
         """Create the main layout of the view"""
@@ -212,17 +215,12 @@ class DeviceMonitorView(ctk.CTkFrame, ConnectionViewInterface):
 
     def _show_connection_dialog(self):
         """Show the connection dialog"""
-        self.connection_dialog = ConnectionDialog(
-            self, 
-            self.loop,
-            BleakScanner,
-            self._handle_connection
-        )
+        if hasattr(self, 'connect_command') and hasattr(self, 'loop'):
+            self.loop.create_task(self.connect_command())
 
     def _handle_connection(self, device_info):
-        """Handle device connection callback"""
-        if hasattr(self, 'connect_command'):  
-            self.connect_command(device_info)
+        """Handle device connection callback - no longer used"""
+        pass
 
     def set_imu_presenters(self, imu1_presenter, imu2_presenter):
         """Set IMU presenters for logging"""

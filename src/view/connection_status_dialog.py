@@ -2,7 +2,9 @@ import customtkinter as ctk
 from src.config.app_config import AppConfig
 from src.view.button_component import ButtonComponent
 
-class ConnectionStatusDialog(ctk.CTkToplevel):
+from src.view.view_interfaces import ConnectionStatusViewInterface
+
+class ConnectionStatusDialog(ctk.CTkToplevel, ConnectionStatusViewInterface):
     """Dialog to show connection status"""
     
     def __init__(self, parent):
@@ -66,7 +68,7 @@ class ConnectionStatusDialog(ctk.CTkToplevel):
         self.ok_button = ButtonComponent(
             main_frame,
             button_text="OK",
-            command=self.destroy,
+            command=self._on_ok_clicked,
             width=100
         )
         self.ok_button.pack(pady=20)
@@ -75,13 +77,24 @@ class ConnectionStatusDialog(ctk.CTkToplevel):
     def show_connecting(self):
         """Show connecting state"""
         self.status_label.configure(text="Connecting...")
-        self.ok_button.pack_forget()
+        self.ok_button.configure(state="disabled")
+        self.ok_button.pack()
+        
+    def on_ok_clicked(self, callback):
+        """Set callback for when OK button is clicked"""
+        self._ok_callback = callback
+
+    def _on_ok_clicked(self):
+        """Internal handler for OK button click"""
+        if hasattr(self, '_ok_callback'):
+            self._ok_callback()
+        self.destroy()
         
     def show_connected(self, device_info):
         """Show connected state with device info"""
         info_text = f"Connected to:\n{device_info.name}\nRSSI: {device_info.rssi} dBm"
         self.status_label.configure(text=info_text)
-        self.ok_button.pack(pady=20)
+        self.ok_button.configure(state="normal")
         
     def show_failed(self):
         """Show connection failed state"""
