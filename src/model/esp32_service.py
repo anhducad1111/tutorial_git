@@ -109,6 +109,15 @@ class ESP32BLEService(BLEService):
     def set_loop(self, loop):
         """Set event loop for async operations"""
         self.loop = loop
+        
+    async def start_services(self):
+        """Start all device services - delegates to DeviceManager"""
+        # Find the DeviceManager instance
+        from src.model.device_manager import DeviceManager
+        device_manager = DeviceManager()
+        if device_manager and hasattr(device_manager, 'start_services'):
+            return await device_manager.start_services()
+        return False
 
     async def check_services(self):
         """Check if device has all required services"""
